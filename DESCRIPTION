@@ -1,0 +1,38 @@
+Package: listenr
+Type: Package
+Title: Explainability for Echo State Networks
+Version: 0.4.0
+Author: Katherine Goode, Daniel Ries and Kellie McClernon
+Maintainer: Katherine Goode <kjgoode@sandia.gov>
+Description: listenr contains functions for training echo-state networks (ESNs)
+  and implementing explainability methods for "listening to the echo". The 
+  code in listenr for training ESN models is based on the code in the R package
+  STRbook (https://github.com/andrewzm/STRbook/tree/master) assocated with the
+  book Spatio-Temporal Statistics With R 
+  (https://www.tandfonline.com/doi/full/10.1080/00031305.2020.1865066) by 
+  Christopher K. Wikle, Andrew Zammit-Mangion, and Noel Cressie.
+License: GPL (>2.1)
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.1
+Imports:
+  doParallel,
+  dplyr,
+  foreach,
+  lubridate,
+  magrittr,
+  MASS,
+  parallel,
+  purrr,
+  stats,
+  stringr,
+  tidyr,
+  tibble
+Depends:
+  R (>= 2.10)
+Suggests:
+  knitr,
+  rmarkdown,
+  testthat (>= 3.0.0)
+VignetteBuilder: knitr
+Config/testthat/edition: 3

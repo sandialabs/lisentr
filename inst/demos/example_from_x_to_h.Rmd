@@ -1,0 +1,159 @@
+---
+title: "Understanding the Conversion from `x` to `h` within `listenr"
+date: "<br> Updated on `r format(Sys.time(), '%B %d, %Y')`"
+output: rmarkdown::github_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  dpi = 300,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+Below is an example using `listenr` to fit an echo-state network (ESN) model to the MERRA-2 data included in the package (`merra2`). The model is trained to forecast stratospheric temperatures given lagged stratospheric temperatures and lagged AOD values on monthly data from 1986 to 1993.
+
+Load R packages:
+
+```{r}
+library(dplyr)
+library(listenr)
+library(tidyr)
+```
+
+## Model Training
+
+Prepare training data for ESN (only AOD and stratospheric temperature):
+
+```{r}
+merra2_train = merra2 %>% filter(data == "train")
+
+train_mat_aod <- 
+  merra2_train %>%
+  select(date, lon, lat, aod_stdzd) %>%
+  pivot_wider(
+    id_cols = c(lon, lat),
+    names_from = date,
+    values_from = aod_stdzd
+  ) %>%
+  select(-lon,-lat) %>%
+  t()
+
+train_mat_temp_strat <- 
+  merra2_train %>%
+  select(date, lon, lat, temp_strat_stdzd) %>%
+  pivot_wider(
+    id_cols = c(lon, lat),
+    names_from = date,
+    values_from = temp_strat_stdzd
+  ) %>%
+  select(-lon,-lat) %>%
+  t()
+```
+
+Compute EOFs:
+
+```{r}
+eofs_aod = compute_eofs(Ztrain = train_mat_aod, n_eofs = 10)
+eofs_temp_strat = compute_eofs(Ztrain = train_mat_temp_strat, n_eofs = 10)
+```
+
+Specify model inputs/outputs (AOD and stratospheric temperature are used to forecast stratospheric temperature):
+
+```{r}
+x = cbind(eofs_aod$train, eofs_temp_strat$train)
+y = eofs_temp_strat$train
+```
+
+Extract the times associated with the training data (note that the times for `x` and `y` are the same): 
+
+```{r}
+t = rownames(x)
+```
+
+Train the ESN: 
+
+```{r}
+esn <-
+  fit_esn(
+    x = x,
+    y = y,
+    t = as.character(t),
+    tau = 1,
+    m = 5,
+    tau_emb = 1,
+    nh = 50,
+    add_quad = TRUE, 
+    internal_scaling = "joint",
+    seed = 20220915
+  )
+```
+
+## From `x` to `h`
+
+Explaining how the input data changes as the ESN is trained:
+
+1. Start with matrix of `r dim(esn$data_input$x)[2]` columns containing specified input variables (in this case PCs 1-10 for AOD and stratospheric temperature) and `r dim(esn$data_input$x)[1]` rows containing the number of times for training:
+
+    ```{r collapse = TRUE}
+    # Dimensions
+    dim(esn$data_input$x)
+    
+    # First 6 rows and columns 
+    head(esn$data_input$x)[, 1:6]
+    
+    # Last 5 rows and columns 
+    tail(esn$data_input$x)[, 1:6]
+    ```
+
+2. Then some rows at the end of the input data matrix are removed based on the forecast lag specified (note that one row has been removed here since `tau` is 1:
+
+    ```{r collapse = TRUE}
+    # Dimensions
+    dim(esn$data_train$x_train)
+    
+    # First 6 rows and columns 
+    head(esn$data_train$x_train)[,1:6]
+    
+    # Last 6 rows and columns 
+    tail(esn$data_train$x_train)[,1:6]
+    ```
+
+3. Next, the embedding vectors are created and converted into a "design matrix". The first column contains all 1s to represent the intercept, and the other columns contain various lags of the input variables. In this case, the times included in the embedding vector are $t$, $t-1$, $t-2$, $t-3$, $t-4$, and $t-5$). Note that these times will be included in the design matrix for each input variable. In this case, the design matrix has 121 columns: 1 for the intercept and 120 for the 20 principal components times the 6 time points included (1+(20*6)). The number of rows (times) is reduced further based on the embedding vector length (`m`) and embedding vector lag (`tau_emb`). Here, the PCs have also been centered and scaled internally before creating the design matrix:
+
+    ```{r collapse = TRUE}
+    # Dimensions
+    dim(esn$data_train$design_matrix)
+    
+    # First 6 rows and columns
+    head(esn$data_train$design_matrix)[,1:6]
+    
+    # Last 6 rows and columns
+    tail(esn$data_train$design_matrix)[,1:6]
+    
+    # Note: The times associated with all values in the design matrix are included in the output
+    
+    # Times in first 6 rows and columns
+    head(esn$data_train$design_matrix_times)[,1:6]
+    
+    # Times in last 6 rows and columns
+    tail(esn$data_train$design_matrix_times)[,1:6]
+    ```
+
+4. Finally, the $h$ matrix is created, which is used to fit the ridge regression. The number of columns corresponds to the number of rows in the design matrix. The number of rows is dependent on the number of hidden units specified by the user (`nh`) and whether the user requested a quadratic term to be included (`add_quad`). In this case, the $h$ matrix has 100 columns since `nh = 50` and `add_quad = TRUE` (50x2). If `add_quad = FALSE`, then $h$ would only have 50 columns. When `add_quad = TRUE`, the first `nh` rows are squared to create the second `nh` rows.
+
+    ```{r collapse = TRUE}
+    # Dimensions
+    dim(esn$h$h)
+    
+    # First 6 rows and columns
+    head(esn$h$h)[,1:6]
+    
+    # Last 6 rows and columns
+    tail(esn$h$h)[,1:6]
+    
+    # Rows 51 to 100 are the squared values of rows 1 to 50
+    identical((esn$h$h[1:50,])^2, esn$h$h[51:100,])
+    ```

@@ -1,0 +1,489 @@
+---
+title: "listenr"
+output: 
+  rmarkdown::github_document: 
+    toc: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  dpi = 300,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+Below is an example using `listenr` to fit an echo-state network (ESN) model to the MERRA-2 data included in the package (`merra2`). The model is trained to forecast stratospheric temperatures given lagged stratospheric temperatures and lagged AOD values. The training data is monthly data from 1986 to 1993. The testing data is monthly data in 1994 and 1995. PFI and ZFI are applied to identify important times for forecasting.
+
+Load R packages:
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(listenr)
+library(lubridate)
+library(stringr)
+library(tidyr)
+```
+
+## Data Steps
+
+### EDA
+
+Check out `merra2` data included in `listenr`:
+
+```{r}
+glimpse(merra2)
+```
+
+Visualize AOD and stratospheric temperature (global means weighed by cos(lat)):
+
+```{r fig.width = 14, fig.height = 6, echo = FALSE}
+merra2 %>%
+  pivot_longer(cols = c(aod, temp_strat), names_to = "var") %>%
+  mutate(weight = cos(lat * pi / 180)) %>%
+  mutate(value_times_weight = value*weight) %>%
+  group_by(date, var) %>%
+  summarise(global_weighted_mean = sum(value_times_weight) / sum(weight),
+            .groups = "drop") %>%
+  ggplot(aes(x = date, y = global_weighted_mean)) +
+  geom_line() +
+  geom_point() +
+  facet_grid(var ~ ., scales = "free_y", switch = "y") +
+  theme_bw() +
+  theme(strip.background = element_blank(),
+        strip.placement = "outside") +
+  labs(
+    x = "Date",
+    y = "",
+    title = "MERRA2 Variables Monthly Averages (averaged over all spatial locations and weighted by cos(lat*pi/180))"
+  )
+```
+
+### ESN Matrices
+
+Prepare training data for ESN (only AOD and stratospheric temperature):
+
+```{r}
+merra2_train = merra2 %>% filter(data == "train")
+
+train_mat_aod <- 
+  merra2_train %>%
+  select(date, lon, lat, aod_stdzd) %>%
+  pivot_wider(
+    id_cols = c(lon, lat),
+    names_from = date,
+    values_from = aod_stdzd
+  ) %>%
+  select(-lon,-lat) %>%
+  t()
+
+train_mat_temp_strat <- 
+  merra2_train %>%
+  select(date, lon, lat, temp_strat_stdzd) %>%
+  pivot_wider(
+    id_cols = c(lon, lat),
+    names_from = date,
+    values_from = temp_strat_stdzd
+  ) %>%
+  select(-lon,-lat) %>%
+  t()
+```
+
+Prepare testing data for ESN:
+
+```{r}
+merra2_test = merra2 %>% filter(data == "test")
+
+test_mat_aod <- 
+  merra2_test %>%
+  select(date, lon, lat, aod_stdzd) %>%
+  pivot_wider(
+    id_cols = c(lon, lat),
+    names_from = date,
+    values_from = aod_stdzd
+  ) %>%
+  select(-lon,-lat) %>%
+  t()
+
+test_mat_temp_strat <- 
+  merra2_test %>%
+  select(date, lon, lat, temp_strat_stdzd) %>%
+  pivot_wider(
+    id_cols = c(lon, lat),
+    names_from = date,
+    values_from = temp_strat_stdzd
+  ) %>%
+  select(-lon,-lat) %>%
+  t()
+```
+
+### EOFs
+
+Compute EOFs:
+
+```{r}
+eofs_aod = compute_eofs(Ztrain = train_mat_aod, Ztest = test_mat_aod, n_eofs = 10)
+eofs_temp_strat = compute_eofs(Ztrain = train_mat_temp_strat, Ztest = test_mat_temp_strat, n_eofs = 10)
+```
+
+## Model
+
+### Training
+
+Specify model inputs/outputs (AOD and stratospheric temperature are used to forecast stratospheric temperature):
+
+```{r}
+x = cbind(eofs_aod$train, eofs_temp_strat$train)
+y = eofs_temp_strat$train
+```
+
+Extract the times associated with the training data (note that the times for `x` and `y` are the same): 
+
+```{r}
+t = rownames(x)
+```
+
+Train the ESN: 
+
+```{r}
+esn <-
+  fit_esn(
+    x = x,
+    y = y,
+    t = as.character(t),
+    tau = 1,
+    m = 5,
+    tau_emb = 1,
+    nh = 50,
+    add_quad = TRUE, 
+    internal_scaling = "joint",
+    seed = 20220915
+  )
+```
+
+## Forecasts
+
+There are two ways to obtain forecasts after training the ESN: forecasts on the input data or a new set of data. 
+
+### Input Data
+
+Forecasts on data input to `fit_esn` are obtained by only inputting the trained ESN into `predict_esn`. This returns two sets of forecasts: "in-sample" and "out-of-sample" forecasts. In-sample forecasts are forecasts made using the "in-sample" `x` values (i.e., the rows in `x` used to estimate the model parameters). Out-of-sample forecasts are made using the "out-of-sample" `x` values (i.e., the rows in `x` that are input to `fit_esn` but excluded from training the model due to the forecast lag):
+
+```{r}
+preds_input = predict_esn(model = esn)
+```
+
+Both in-sample and out-of-sample forecasts are returned as matrices with the times of the forecasts attached. However, the in-sample forecasts list the actual time, while the out-of-sample forecasts list "the time of the corresponding x value + $\tau$". The user will need to adjust these accordingly. In this example, there is only one out-of-sample time with forecasts since `tau` is 1.
+
+```{r collapse = TRUE}
+# In-sample forecast: dimensions
+dim(preds_input$preds_ins)
+
+# In-sample forecasts: first 6 rows
+head(preds_input$preds_ins)
+
+# Out-of-sample forecasts
+preds_input$preds_oos
+```
+
+### New Data
+
+Forecasts on a new set of data can be made by providing an `x_new` object to `predict_esn`. `x_new` must be a matrix with the same variables (and number of columns) as `x`. The rows of `x_new` must start the the time following the last time in `x`. In this scenario, `x` ended at the date of `r t[length(t)]`. Thus, `x_new` must start at the date of `r rownames(eofs_aod$test)[1]`.
+
+```{r}
+preds_new <-
+  predict_esn(
+    model = esn,
+    x_new = cbind(eofs_aod$test, eofs_temp_strat$test),
+    t_new = as.character(rownames(eofs_aod$test))
+  )
+```
+
+Both in-sample and out-of-sample forecasts are returned as matrices with the times of the forecasts attached. However, the in-sample forecasts list the actual time, while the out-of-sample forecasts list "the time of the corresponding x value + $\tau$". The user will need to adjust these accordingly. In this example, there is only one out-of-sample time with forecasts since `tau` is 1.
+
+```{r collapse = TRUE}
+# Dimensions
+dim(preds_new$preds_new)
+
+# First 6 rows
+head(preds_new$preds_new)
+```
+
+### Spatial Scale
+
+Since the ESN was trained using principal components computed from the spatio-temporal data, the forecasts are returned as principal components. Here, the forecasts are converted back to the spatial scale:
+
+```{r}
+spatial_preds = predict_esn(model = esn, phi = eofs_temp_strat$phi)
+spatial_preds_new <- 
+  predict_esn(
+    model = esn, 
+    x_new = cbind(eofs_aod$test, eofs_temp_strat$test),
+    t_new = as.character(rownames(eofs_aod$test)), 
+    phi = eofs_temp_strat$phi
+  )
+```
+
+### Join with Data
+
+Create a location ID associated with longitude and latitude:
+
+```{r}
+locations <- 
+  merra2_train %>%
+  select(date, lon, lat, temp_strat_stdzd) %>%
+  pivot_wider(
+    id_cols = c(lon, lat),
+    names_from = date,
+    values_from = temp_strat_stdzd
+  ) %>%
+  mutate(loc_id = 1:n()) %>%
+  select(loc_id, lon, lat)
+```
+
+Convert forecasts to a data frames and attach longitude and latitudes:
+
+```{r}
+spatial_preds_ins_df <- 
+  data.frame(spatial_preds$preds_ins) %>%
+  tibble::rownames_to_column(var = "date") %>%
+  pivot_longer(cols = -date, names_to = "loc_id", values_to = "temp_strat_stdzd_pred") %>%
+  mutate(loc_id = as.numeric(str_remove(loc_id, "X"))) %>%
+  left_join(locations, by = "loc_id") %>%
+  mutate(pred_type = "ins") %>%
+  mutate(date = as_date(date))
+
+spatial_preds_oos_df <-
+  data.frame(spatial_preds$preds_oos) %>%
+  tibble::rownames_to_column(var = "date") %>%
+  pivot_longer(cols = -date, names_to = "loc_id", values_to = "temp_strat_stdzd_pred") %>%
+  mutate(loc_id = as.numeric(str_remove(loc_id, "X"))) %>%
+  left_join(locations, by = "loc_id") %>%
+  mutate(pred_type = "oos") %>%
+  mutate(date = str_remove(date, " \\+ 1")) %>%
+  mutate(date = as_date(date)) %>%
+  mutate(date = date %m+% period("1 month"))
+
+spatial_preds_new_df <-
+  data.frame(spatial_preds_new$preds_new) %>%
+  tibble::rownames_to_column(var = "date") %>%
+  pivot_longer(cols = -date, names_to = "loc_id", values_to = "temp_strat_stdzd_pred") %>%
+  mutate(loc_id = as.numeric(str_remove(loc_id, "X"))) %>%
+  left_join(locations, by = "loc_id") %>%
+  mutate(pred_type = "new") %>%
+  mutate(date = str_remove(date, " \\+ 1")) %>%
+  mutate(date = as_date(date)) %>%
+  mutate(date = date %m+% period("1 month"))
+```
+
+Join all predictions:
+
+```{r}
+spatial_preds_all <- 
+  bind_rows(spatial_preds_ins_df, spatial_preds_oos_df, spatial_preds_new_df) %>%
+  mutate(pred_data = ifelse(pred_type == "ins", "train", "test")) %>%
+  mutate(
+    pred_type = factor(pred_type, levels = c("ins", "oos", "new")),
+    pred_data = factor(pred_data, levels = c("train", "test"))
+  )
+```
+
+Attach observed values to predictions: 
+
+```{r}
+spatial_preds_plus_obs <-
+  left_join(spatial_preds_all, merra2) %>%
+  select(
+    pred_type,
+    pred_data,
+    date,
+    loc_id,
+    lon,
+    lat,
+    temp_strat,
+    temp_strat_mean,
+    temp_strat_sd,
+    temp_strat_stdzd,
+    temp_strat_stdzd_pred
+  ) %>%
+  mutate(temp_strat_pred = (temp_strat_stdzd_pred * temp_strat_sd) + temp_strat_mean)
+```
+
+Check the dates in each prediction group: 
+
+```{r}
+spatial_preds_plus_obs %>%
+  group_by(pred_data, pred_type) %>%
+  summarise(min(date), max(date))
+```
+
+Note that there are forecasts for January 1, 1996, but there is no observed data in the test data provided:
+
+```{r}
+spatial_preds_plus_obs %>% 
+  filter(is.na(temp_strat)) %>%
+  distinct(date)
+```
+
+Compute RMSEs at each time over all spatial locations:
+
+```{r}
+rmses_by_date <- 
+  spatial_preds_plus_obs %>%
+  mutate(square_diff = (temp_strat - temp_strat_pred)^2) %>%
+  group_by(pred_data, pred_type, date) %>%
+  summarise(rmse = sqrt(sum(square_diff) / n()), .groups = "drop")
+```
+
+### Visualizations
+
+Plot forecasted stratospheric temperature versus observed stratospheric temperature separated by training (in-sample) and testing (out-of-sample and new) data  (dashed red line is a 1:1 line):
+
+```{r fig.width = 10, fig.height = 5, echo = FALSE}
+spatial_preds_plus_obs %>%
+  ggplot(aes(x = temp_strat, y = temp_strat_pred)) + 
+  geom_point(alpha = 0.25) + 
+  facet_grid(. ~ pred_data) + 
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") + 
+  theme_bw() +
+  theme(aspect.ratio = 1, strip.background = element_blank())
+```
+
+RMSEs plotted for each date (color indicates training/testing data):
+
+```{r fig.width = 16, fig.height = 4,echo = FALSE}
+rmses_by_date %>%
+  ggplot(aes(x = date, y = rmse, color = pred_data)) +
+  geom_point() +
+  geom_line() +
+  theme_bw() +
+  scale_color_manual(values = wesanderson::wes_palettes$Zissou1[c(1,5)]) + 
+  labs(
+    x = "Date",
+    y = "RMSE",
+    color = "Data Type"
+  )
+```
+
+## Feature Importance
+
+### PFI
+
+Compute PFI separately for AOD and stratospheric temperature:
+
+```{r}
+pfi <-
+  compute_fi(
+    model = esn,
+    type = "pfi",
+    nreps = 10,
+    var_groups = list(1:10, 11:20),
+    seed = 20220915
+  )
+```
+
+Clean up PFI results:
+
+```{r}
+pfi_clean <-
+  pfi %>%
+  mutate(
+    t_adj = as_date(t_adj),
+    t_forecasted = as_date(t_forecasted)
+  ) %>%
+  mutate(vars_adj = ifelse(vars_adj == "1,2,3,4,5,6,7,8,9,10", "aod", "temp_strat"))
+```
+
+PFI values associated with a given date on the one month ahead forecast (separated by AOD and temperature):
+
+```{r fig.width = 16, fig.height = 8, echo = FALSE}
+pfi_clean %>%
+  summarise(pfi_mean = mean(fi), pfi_sd = mean(fi), .by = c(t_adj, t_forecasted, vars_adj)) %>%
+  ggplot(aes(x = t_adj, y = pfi_mean)) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(aes(ymin = pfi_mean - pfi_sd, ymax = pfi_mean + pfi_sd), alpha = 0.5) +
+  geom_vline(
+    xintercept = as_date("1991-06-01"),
+    color = "black",
+    linetype = "dashed",
+    alpha = 0.75,
+    size = 1
+  ) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  facet_grid(vars_adj ~ ., scales = "free_y") +
+  scale_x_date(date_labels = "%Y-%m",
+               breaks = scales::breaks_pretty(20)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(
+    angle = 45,
+    vjust = 1,
+    hjust = 1
+  ), strip.background = element_blank()) + 
+  labs(
+    x = "Date Permuted",
+    y = "PFI",
+    title = "Importance of Date Permuted on One Month Ahead Forecast",
+    subtitle = "Red line indicates month of Pinatubo: June 1991 \nError bars represent PFI +/- 1SD"
+  )
+```
+
+### ZFI
+
+Compute ZFI separately for AOD and stratospheric temperature:
+
+```{r}
+zfi <-
+  compute_fi(
+    model = esn,
+    type = "zfi",
+    var_groups = list(1:10, 11:20),
+    seed = 20220915
+  )
+```
+
+Clean up ZFI results:
+
+```{r}
+zfi_clean <-
+  zfi %>%
+  mutate(
+    t_adj = as_date(t_adj),
+    t_forecasted = as_date(t_forecasted)
+  ) %>%
+  mutate(vars_adj = ifelse(vars_adj == "1,2,3,4,5,6,7,8,9,10", "aod", "temp_strat"))
+```
+
+ZFI values associated with a given date on the one month ahead forecast (separated by AOD and temperature):
+
+```{r fig.width = 16, fig.height = 8, echo = FALSE}
+zfi_clean %>%
+  ggplot(aes(x = t_adj, y = fi)) +
+  geom_point() +
+  geom_line() +
+  geom_vline(
+    xintercept = as_date("1991-06-01"),
+    color = "black",
+    linetype = "dashed",
+    alpha = 0.75,
+    size = 1
+  ) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  facet_grid(vars_adj ~ ., scales = "free_y") +
+  scale_x_date(date_labels = "%Y-%m",
+               breaks = scales::breaks_pretty(20)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(
+    angle = 45,
+    vjust = 1,
+    hjust = 1
+  ), strip.background = element_blank()) + 
+  labs(
+    x = "Date Permuted",
+    y = "ZFI",
+    title = "Importance of Date Permuted on One Month Ahead Forecast",
+    subtitle = "Red line indicates month of Pinatubo: June 1991 \nError bars represent ZFI +/- 1SD"
+  )
+```
