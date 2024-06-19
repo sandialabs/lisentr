@@ -1,0 +1,1373 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(gridExtra)
+```
+
+
+
+# HSW
+
+```{r}
+
+#--------------------------------------------------
+# HSW
+
+#means
+hsw_cf_means <- read.csv("../output/hsw/86e_HSW_cf_means.csv")
+hsw_ens_means <- read.csv("../output/hsw/108_HSW_means.csv")
+#FI
+hsw_ens_fi <- read.csv(paste0("../output/gmd_paper/106_HSW_impact.csv")) 
+hsw_ens_fi_cf <- read.csv(paste0("../output/gmd_paper/107_HSW_cf.csv")) 
+hsw_pred_plus <- read.csv("../output/gmd_paper/106-hsw_fullvar_preds_plus.csv")
+
+#--------------------------------------------------
+#E3SM
+
+#means
+e3sm_cf_means <- read.csv("../output/e3sm/74p_e3sm_cf_means.csv")
+e3sm_prscb_means <- read.csv("../output/e3sm/75f_e3sm_pscrb_means.csv")
+e3sm_snr <- read.csv("../output/e3sm/84-E3SM_SNR.csv") %>%
+  mutate(date=floor_date(as_date(date),'month')) %>%
+  summarize(m_val=mean(m_value),s_val=sd(m_value),.by=c(date,variable,run)) 
+
+
+
+#FI/results
+e3sm_results <- read.csv(paste0("../output/gmd_paper/102-e3sm_fullvar.csv")) %>%
+  mutate(t_adj=floor_date(as_date(t_adj),'month'),
+         t_forecasted=floor_date(as_date(t_forecasted),'month'))  %>%
+  summarize(m_importance=mean(fi),m1_rmses_obs=mean(rmses_obs),m1_rmses_adj=mean(rmses_adj),.by=c(variable,t_adj,model,rep)) %>%
+  summarize(m_fi=mean(m_importance),s_fi=sd(m_importance),m_rmses_obs=mean(m1_rmses_obs),m_rmses_adj=mean(m1_rmses_adj),.by=c(variable,t_adj,model))
+
+e3sm_cf_results <- read.csv(paste0("../output/gmd_paper/104a-e3sm_fullvar_cf.csv")) %>%
+  mutate(t_adj=floor_date(as_date(t_adj),'month'),
+         t_forecasted=floor_date(as_date(t_forecasted),'month'))  %>%
+  summarize(m_importance=mean(fi),m1_rmses_obs=mean(rmses_obs),m1_rmses_adj=mean(rmses_adj),.by=c(variable,t_adj,model,rep)) %>%
+  summarize(m_fi=mean(m_importance),s_fi=sd(m_importance),m_rmses_obs=mean(m1_rmses_obs),m_rmses_adj=mean(m1_rmses_adj),.by=c(variable,t_adj,model))
+
+e3sm_spatial <- read.csv(paste0("../output/gmd_paper/102-e3sm_fullvar_preds_plus.csv")) %>%
+  mutate(date=as_date(date)) %>%
+  summarize(m_fi = mean(m_zfi),s_fi=sd(m_zfi),.by=c(lat,vars_adj,date,model))
+
+#supp material
+
+e3sm_results_WN <- read.csv(paste0("../output/gmd_paper/104b-e3sm_fullvar_WN.csv")) %>%
+  mutate(t_adj=floor_date(as_date(t_adj),'month'),
+  t_forecasted=floor_date(as_date(t_forecasted),'month'))  %>%  summarize(m_importance=mean(fi),m1_rmses_obs=mean(rmses_obs),m1_rmses_adj=mean(rmses_adj),.by=c(variable,t_adj,model,rep)) %>%
+  summarize(m_fi=mean(m_importance),s_fi=sd(m_importance),m_rmses_obs=mean(m1_rmses_obs),m_rmses_adj=mean(m1_rmses_adj),.by=c(variable,t_adj,model))
+
+e3sm_results_noAOD <- read.csv(paste0("../output/gmd_paper/104c-e3sm_fullvar.csv")) %>%
+  mutate(t_adj=floor_date(as_date(t_adj),'month'),
+         t_forecasted=floor_date(as_date(t_forecasted),'month'))  %>%
+  summarize(m_importance=mean(fi),m1_rmses_obs=mean(rmses_obs),m1_rmses_adj=mean(rmses_adj),.by=c(variable,t_adj,model,rep)) %>%
+  summarize(m_fi=mean(m_importance),s_fi=sd(m_importance),m_rmses_obs=mean(m1_rmses_obs),m_rmses_adj=mean(m1_rmses_adj),.by=c(variable,t_adj,model))
+
+#prescribed
+pv00 <- read.csv(paste0("../output/gmd_paper/104d-e3sm_pscrb_e0.0_cori.csv")) %>%
+  mutate(t_adj=as_date(t_adj),
+         t_forecasted=as_date(t_forecasted),
+         prescribe="0.0")
+  
+pv05 <- read.csv(paste0("../output/gmd_paper/104e-e3sm_pscrb_e0.5_cori.csv")) %>%
+  mutate(t_adj=as_date(t_adj),
+         t_forecasted=as_date(t_forecasted),
+         prescribe="0.5")
+    
+pv10 <- read.csv(paste0("../output/gmd_paper/104f-e3sm_pscrb_cori.csv")) %>%
+  mutate(t_adj=as_date(t_adj),
+         t_forecasted=as_date(t_forecasted),
+         prescribe="1.0")
+      
+pv15 <- read.csv(paste0("../output/gmd_paper/104g-e3sm_pscrb_e1.5_cori.csv")) %>%
+  mutate(t_adj=as_date(t_adj),
+         t_forecasted=as_date(t_forecasted),
+         prescribe="1.5")
+
+pv <- rbind(pv00,pv05,pv10,pv15) %>%  summarize(m_importance=mean(fi),.by=c(variable,t_adj,model,prescribe,rep)) %>%
+  summarize(m_fi=mean(m_importance),s_fi=sd(m_importance),.by=c(variable,t_adj,model,prescribe)) 
+
+e3sm_extra_vars <- read.csv(paste0("../output/gmd_paper/104h-e3sm_fullvar.csv")) %>%
+  mutate(t_adj=as_date(t_adj),
+         t_forecasted=as_date(t_forecasted)) %>%
+  summarize(m_importance=mean(fi),m1_rmses_obs=mean(rmses_obs),m1_rmses_adj=mean(rmses_adj),.by=c(variable,t_adj,model,rep)) %>%
+  summarize(m_fi=mean(m_importance),s_fi=sd(m_importance),m_rmses_obs=mean(m1_rmses_obs),m_rmses_adj=mean(m1_rmses_adj),.by=c(variable,t_adj,model))
+e3sm_extra_vars$variable[e3sm_extra_vars$variable=="AERODSO4"] <- "AODSO4"
+
+e3sm_rmse_split <- read.csv("../output/gmd_paper/103-e3sm_fullvar_rmse.csv") %>%
+  mutate(date=as_date(date),type=ifelse(year(date)>year,"Test","Train"))
+
+e3sm_replicate_rmse <- read.csv("../output/e3sm/95-e3sm_replicate_rmse.csv")%>%
+  mutate(date=as_date(date))
+
+#--------------------------------------------------
+#MERRA2
+
+merra2_fi <- read.csv("../output/gmd_paper/88-MERRA2_360x180_20pcs_swgndclr.csv") %>% 
+  mutate(t_adj=as_date(t_adj)) %>%
+  group_by(t_adj,model,variable) %>%
+  summarize(m_fi=mean(fi))
+
+merra2_spatial <- read.csv(paste0("../output/gmd_paper/88-MERRA2_preds_plus_20pcs_swgndclr.csv")) %>%
+  mutate(date=as_date(date)) %>%
+  rename(m_fi=m_zfi_contr_wgt,s_fi=s_zfi_contr_wgt)
+
+```
+
+
+
+
+```{r fig.width=8,fig.height=5,eval=FALSE}
+hsw_ens_fi$variable[hsw_ens_fi$variable=="2M"] <- "T1000"
+
+tmp= hsw_ens_fi %>%
+  filter(model=="T050") %>%
+  summarize(m_importance=mean(fi),.by=c(variable,t_adj,model,rep)) %>%
+  summarize(m_fi=mean(m_importance),s_fi=sd(m_importance),.by=c(variable,t_adj,model))
+tmp2= hsw_ens_fi %>%
+  filter(model=="T1000") %>%
+  summarize(m_importance=mean(fi),.by=c(variable,t_adj,model,rep)) %>%
+  summarize(m_fi=mean(m_importance),s_fi=sd(m_importance),.by=c(variable,t_adj,model))
+
+
+p1= ggplot() +
+  geom_line(data=tmp,aes(
+    x = t_adj,
+    y = m_fi,
+    color="Ensemble"
+  ),alpha = 0.95) +
+  
+  geom_line(data=hsw_ens_fi_cf %>% filter(model=="T050"),aes(
+        x = t_adj,
+        y = fi,
+        color="Counterfactual"
+  ),alpha=0.5) +
+  
+  geom_ribbon(data=tmp,aes(
+    x = t_adj,
+    y = m_fi,
+    ymin = m_fi - s_fi,
+    ymax = m_fi + s_fi,fill="Ensemble Variability"),alpha=0.3,color=NA) +
+  
+  geom_vline(
+    xintercept = 180,
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable) + 
+  scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(3,2)], "black")) + 
+  scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2)], "black")) + 
+
+  labs(
+    x = "Day Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill= "",
+    subtitle='HSW++ Predicting T050'
+    ) + 
+  theme_bw(base_size = 12)
+
+p2= ggplot() +
+  geom_line(data=tmp2,aes(
+    x = t_adj,
+    y = m_fi,
+    color="Ensemble"
+  ),alpha = 0.95) +
+  
+  geom_line(data=hsw_ens_fi_cf %>% filter(model=="T1000"),aes(
+        x = t_adj,
+        y = fi,
+        color="Counterfactual"
+  ),alpha=0.5) +
+  
+  geom_ribbon(data=tmp2,aes(
+    x = t_adj,
+    y = m_fi,
+    ymin = m_fi - s_fi,
+    ymax = m_fi + s_fi,fill="Ensemble Variability"),alpha=0.3,color=NA) +
+  
+  geom_vline(
+    xintercept = 180,
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable) + 
+  scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(3,2)], "black")) + 
+  scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2)], "black")) + 
+
+  labs(
+    x = "Day Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill= "",
+    subtitle='HSW++ Predicting T1000'
+    ) + 
+  theme_bw(base_size = 12)
+
+p3=grid.arrange(p1,p2,nrow=2)
+p3
+ggsave(
+     filename = "../output/gmd_paper/figures/hsw_fi.png",
+     plot = p3,
+     dpi = 300,
+     height = 5,
+     width = 8
+    )
+```
+
+
+
+
+
+
+## stratospheric temp
+
+```{r fig.width=10,fig.height=6}
+p1=hsw_pred_plus   %>%
+  filter(model=="T050", rep == 1,time > 40) %>%
+  mutate(
+    m_fi=m_zfi,#ifelse(m_zfi > 3,3,m_zfi),
+    #m_fi=ifelse(m_zfi < -1,-1,m_zfi)
+         ) %>%
+  ggplot(aes(x=time,y=lat,fill=m_fi)) +
+  geom_tile() +
+  facet_grid(~vars_adj) +
+  geom_hline(yintercept=0) +
+    geom_vline(
+    xintercept = 179,
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  scale_fill_distiller(
+    palette = "RdBu",
+    direction = -1,
+    #limits = c(-1,3)
+  ) +
+  theme_bw(base_size = 14) +
+  #theme_bw(base_size = 24) +
+  labs(subtitle="Predicting T050 of HSW++",y="Latitude",fill="Importance",x="Day")
+
+p2=hsw_pred_plus   %>%
+  filter(model=="T1000", rep == 1,time > 40) %>%
+  mutate(
+    m_fi=m_zfi,#ifelse(m_zfi > 3,3,m_zfi),
+    #m_fi=ifelse(m_zfi < -1,-1,m_zfi)
+         ) %>%
+  ggplot(aes(x=time,y=lat,fill=m_fi)) +
+  geom_tile() +
+  facet_grid(~vars_adj) +
+  geom_hline(yintercept=0) +
+    geom_vline(
+    xintercept = 179,
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  scale_fill_distiller(
+    palette = "RdBu",
+    direction = -1,
+    #limits = c(-1,3)
+  ) +
+  theme_bw(base_size = 14) +
+  #theme_bw(base_size = 24) +
+  labs(subtitle="Predicting T1000 of HSW++",y="Latitude",fill="Importance",x="Day")
+
+p3 = grid.arrange(p1,p2,nrow=2)
+p3
+
+ggsave(
+     filename = "../output/gmd_paper/figures/hsw_contribution.png",
+     plot = p3,
+     dpi = 300,
+     height = 6,
+     width = 10
+    )
+```
+
+
+
+## means of ensemble
+```{r fig.width=10,fig.height=3,eval=FALSE}
+tmp = hsw_ens_means %>%
+      group_by(variable,time) %>%
+      summarize(m_value=mean(value),s_value=sd(value)) %>%
+      mutate(variable=factor(variable,levels=c('m_aod','m_strat','m_surf'),labels=c('AOD','T050','T1000' )))
+
+p1= ggplot() +
+  geom_line(
+    data=tmp,
+    aes(x=time,y=m_value,color="Ensemble")) + 
+  
+  geom_line(
+    data=rbind(data.frame(time=seq(from=0,to=1200,by=2),variable="AOD",value=0),hsw_cf_means %>%
+      mutate(variable=factor(variable,levels=c('AOD','m_strat','m_surf'),labels=c('AOD','T050','T1000' )))),
+    aes(x=time,y=value,color="Counterfactual")
+  ) +
+  
+  geom_ribbon(data=tmp,aes(x=time,y=m_value,ymin=m_value-s_value,ymax=m_value+s_value,fill="Ensemble"),alpha=0.2) +
+  facet_wrap(~variable) +
+    geom_hline(
+    yintercept=0
+  ) +
+   labs(title='HSW++',y='Global Average \n Normalized Anomalies',x="Day",fill="",color="")+
+    scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(3,2)], "black")) + 
+  scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2)])) + 
+  theme_bw(base_size = 12)
+
+p1
+
+ggsave(
+     filename = "../output/gmd_paper/figures/hsw_means.png",
+     plot = p1,
+     dpi = 300,
+     height = 3,
+     width = 10
+    )
+```
+
+
+
+
+
+# E3SM
+
+
+
+
+
+```{r fig.width=7,fig.height=3}
+e3sm_snr$variable[e3sm_snr$variable=="TREFHT_stndzd"] <- "T2M_stndzd"
+
+p1=e3sm_snr %>%
+    mutate(date=as_date(date),variable=factor(variable,levels=c("AEROD_v_stndzd","FLNT_stndzd","FSDSC_stndzd","T050_stndzd","T2M_stndzd","AODSO4_stndzd","BURDENSO4_stndzd"),labels=c("AOD","FLNT","FSDSC","T050","T2M","AODSO4","BURDENSO4"))) %>%
+  filter(!(variable %in% c("AOD","FLNT","FSDSC","T050","T2M"))) %>%
+  filter(year(date) %in% 1991:1999, run != 'cf') %>%
+  ggplot(aes(x=date,y=m_val,group=run,ymin=m_val-s_val,ymax=m_val+s_val)) +
+  geom_line() +
+  geom_ribbon(alpha=0.2,color=NA) +
+  geom_hline(yintercept=0) +
+  facet_wrap(~variable,scales='free') +
+  labs(y="Value",x="",color="",fill="",  title='E3SM'
+) +
+  theme_bw(base_size = 14)
+p1
+
+ggsave(
+     filename = "../output/gmd_paper/figures/e3sm_means_extra.png",
+     plot = p1,
+     dpi = 300,
+     height = 3,
+     width = 7
+    )
+
+```
+
+
+
+```{r fig.width=10,fig.height=4}
+e3sm_snr$variable[e3sm_snr$variable=="TREFHT_stndzd"] <- "T2M_stndzd"
+
+tmp = e3sm_snr %>%
+    mutate(date=as_date(date),variable=factor(variable,levels=c("AEROD_v_stndzd","FLNT_stndzd","FSDSC_stndzd","T050_stndzd","T2M_stndzd","AODSO4_stndzd","BURDENSO4_stndzd"),labels=c("AOD","FLNT","FSDSC","T050","T2M","AODSO4","BURDENSO4"))) %>%
+  filter(variable %in% c("AOD","FLNT","FSDSC","T050","T2M")) %>%
+  filter(year(date) %in% 1991:1999, run != 'cf') 
+
+tmp2 = e3sm_cf_means %>%
+  mutate(date=as_date(date),variable=factor(variable,levels=c("m_AEROD_v_stndzd","m_FLNT_stndzd","m_FSDSC_stndzd","m_T050_stndzd","m_TREFHT_stndzd"),labels=c("AOD","FLNT","FSDSC","T050","T2M"))) %>%
+  group_by(variable,date) %>%
+  summarize(m_value=mean(value),s_value=sd(value))
+
+p1=ggplot() +
+  geom_line(data=tmp, aes(x=date,y=m_val,ymin=m_val-s_val,ymax=m_val+s_val,color="Ensemble")) +
+  geom_ribbon(data=tmp, aes(x=date,y=m_val,ymin=m_val-s_val,ymax=m_val+s_val,fill="Ensemble"),alpha=0.2,color=NA) +
+  geom_line(data=tmp2, aes(x=date,y=m_value,ymin=m_value-s_value,ymax=m_value+s_value,color="Counterfactual")) +
+  geom_ribbon(data=tmp2, aes(x=date,y=m_value,ymin=m_value-s_value,ymax=m_value+s_value,fill="Counterfactual"),alpha=0.2,color=NA) +
+  geom_hline(yintercept=0) +
+  facet_wrap(~variable,scales='free') +
+  labs(y="Value",x="",color="",fill="",  title='E3SM'
+) +
+  scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(3,2)], "black")) + 
+  scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(3,2)])) + 
+   labs(title='E3SM',y='Global Average \n Normalized Anomalies',x="Date",fill="",color="")+
+  theme_bw(base_size = 14)
+p1
+
+ggsave(
+     filename = "../output/gmd_paper/figures/e3sm_means.png",
+     plot = p1,
+     dpi = 300,
+     height = 4,
+     width = 10
+    )
+
+```
+
+
+
+
+
+
+```{r fig.width=10,fig.height=4}
+p1=e3sm_prscb_means %>%
+  mutate(date=as_date(date),variable=factor(variable,levels=c("m_AEROD_v_stndzd","m_FLNT_stndzd","m_FSNT_stndzd","m_T050_stndzd","m_TREFHT_stndzd"),labels=c("AOD","FLNT","FSNT","T050","T2M"))) %>%
+  group_by(variable,date,size) %>%
+  summarize(m_value=mean(value),s_value=sd(value)) %>%
+  ggplot(aes(x=date,y=m_value,ymin=m_value-s_value,ymax=m_value+s_value,color=size,fill=size)) +
+  geom_line() +
+  geom_ribbon(alpha=0.2,color=NA) +
+  facet_wrap(~variable,scales='free') +
+    geom_hline(
+    yintercept=0
+  ) +
+  scale_color_manual(values = viridis::viridis(4)) +
+  scale_fill_manual(values = viridis::viridis(4))+
+   labs(title='E3SM Prescribed Variation',y='Global Average Normalized Anomalies')+
+  theme_bw(base_size = 14)
+
+p1
+
+ggsave(
+     filename = "../output/gmd_paper/figures/e3sm_pscrb_means.png",
+     plot = p1,
+     dpi = 300,
+     height = 4,
+     width = 10
+    )
+```
+
+
+
+
+
+## e3sm results regular
+```{r fig.width=10,fig.height=6}
+e3sm_results$variable[e3sm_results$variable=="TREFHT"] <- "T2M"
+e3sm_results$variable[e3sm_results$variable=="AEROD_v"] <- "AOD"
+e3sm_results$model[e3sm_results$model=="TREFHT"] <- "T2M"
+
+p1a=ggplot(data=e3sm_results %>% filter(model=="T050"),aes(x=t_adj,y=m_fi)) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon( aes(x=t_adj,ymin=m_fi-s_fi,ymax=m_fi+s_fi),alpha=0.3) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable,scales="free_y") + 
+  #scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2:6)], "black")) + 
+  #scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2:6)], "black")) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill= "",
+    title='E3SM',subtitle='Predicting T050'
+    ) + 
+  theme_bw(base_size = 14)
+
+p2a=ggplot(data=e3sm_results %>% filter(model=="T2M"),aes(x=t_adj,y=m_fi)) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon( aes(x=t_adj,ymin=m_fi-s_fi,ymax=m_fi+s_fi),alpha=0.3) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable,scales="free_y") + 
+  #scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2:6)], "black")) + 
+  #scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2:6)], "black")) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill= "",
+    title='',subtitle='Predicting T2M'
+    ) + 
+  theme_bw(base_size = 14)
+
+p3=gridExtra::grid.arrange(p1a,p2a,nrow=2)
+p3
+
+# ggsave(
+#      filename = "../output/gmd_paper/figures/e3sm_fi.png",
+#      plot = p3,
+#      dpi = 300,
+#      height = 6,
+#      width = 10
+#     )
+
+
+
+
+```
+
+## e3sm results regular
+```{r fig.width=10,fig.height=6}
+e3sm_results$variable[e3sm_results$variable=="TREFHT"] <- "T2M"
+e3sm_results$variable[e3sm_results$variable=="AEROD_v"] <- "AOD"
+e3sm_results$model[e3sm_results$model=="TREFHT"] <- "T2M"
+
+e3sm_cf_results$variable[e3sm_cf_results$variable=="TREFHT"] <- "T2M"
+e3sm_cf_results$model[e3sm_cf_results$model=="TREFHT"] <- "T2M"
+e3sm_cf_results$variable[e3sm_cf_results$variable=="AEROD_v"] <- "AOD"
+
+e3sm_results_comb <- rbind(e3sm_results %>% mutate(data="Ensemble"),e3sm_cf_results %>% mutate(data="Counterfactual"))
+
+p1a=ggplot(data=e3sm_results_comb %>% filter(model=="T050"),aes(x=t_adj,y=m_fi,color=data,fill=data)) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon( aes(x=t_adj,ymin=m_fi-s_fi,ymax=m_fi+s_fi),alpha=0.3,color=NA) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable,scales="free_y") + 
+  scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(3,2)], "black")) + 
+  scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(3,2)], "black")) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill= "",
+    title='E3SM',subtitle='Predicting T050'
+    ) + 
+  theme_bw(base_size = 14)
+
+p2a=ggplot(data=e3sm_results_comb %>% filter(model=="T2M"),aes(x=t_adj,y=m_fi,color=data,fill=data)) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon( aes(x=t_adj,ymin=m_fi-s_fi,ymax=m_fi+s_fi),alpha=0.3,color=NA) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable,scales="free_y") + 
+  scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(3,2)], "black")) + 
+  scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(3,2)], "black")) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill= "",
+    title='',subtitle='Predicting T2M'
+    ) + 
+  theme_bw(base_size = 14)
+
+p3=gridExtra::grid.arrange(p1a,p2a,nrow=2)
+p3
+
+ggsave(
+     filename = "../output/gmd_paper/figures/e3sm_fi.png",
+     plot = p3,
+     dpi = 300,
+     height = 6,
+     width = 10
+    )
+
+
+
+
+```
+
+
+
+## e3sm results counterfactual
+```{r fig.width=10,fig.height=5}
+e3sm_cf_results$variable[e3sm_cf_results$variable=="TREFHT"] <- "T2M"
+e3sm_cf_results$model[e3sm_cf_results$model=="TREFHT"] <- "T2M"
+e3sm_cf_results$variable[e3sm_cf_results$variable=="AEROD_v"] <- "AOD"
+
+p1a=ggplot(data=e3sm_cf_results %>% filter(model=="T050"),aes(x=t_adj,y=m_fi)) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon( aes(x=t_adj,ymin=m_fi-s_fi,ymax=m_fi+s_fi),alpha=0.3) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable,scales="free_y") + 
+  #scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2:6)], "black")) + 
+  #scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2:6)], "black")) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill= "",
+    title='E3SM Counterfactual',subtitle='Predicting T050'
+    ) + 
+  theme_bw(base_size = 14)
+
+p2a=ggplot(data=e3sm_cf_results %>% filter(model=="T2M"),aes(x=t_adj,y=m_fi)) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon( aes(x=t_adj,ymin=m_fi-s_fi,ymax=m_fi+s_fi),alpha=0.3) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable,scales="free_y") + 
+  #scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2:6)], "black")) + 
+  #scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2:6)], "black")) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill= "",
+    title='',subtitle='Predicting T2M'
+    ) + 
+  theme_bw(base_size = 14)
+
+p3 = gridExtra::grid.arrange(p1a,p2a,nrow=2)
+p3
+
+ggsave(
+     filename = "../output/gmd_paper/figures/e3sm_cf_fi.png",
+     plot = p3,
+     dpi = 300,
+     height = 5,
+     width = 10
+    )
+
+
+
+
+```
+
+
+## e3sm results prescribed
+```{r fig.width=10,fig.height=6}
+
+pv$variable[pv$variable=="TREFHT"] <- "T2M"
+pv$model[pv$model=="TREFHT"] <- "T2M"
+pv$variable[pv$variable=="AEROD_v"] <- "AOD"
+
+
+p1a=ggplot(data=pv %>% filter(model=="T050"),aes(x=t_adj,y=m_fi,color=prescribe,fill=prescribe)) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon( aes(x=t_adj,ymin=m_fi-s_fi,ymax=m_fi+s_fi),alpha=0.3,color=NA) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable,scales="free_y") + 
+  scale_color_manual(values = viridis::viridis(4)) +
+  scale_fill_manual(values = viridis::viridis(4))+
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill= "",
+    title='E3SM Prescribed Variation',subtitle='Predicting T050'
+    ) + 
+  theme_bw(base_size = 14)
+
+
+p2a=ggplot(data=pv %>% filter(model=="T2M"),aes(x=t_adj,y=m_fi,color=prescribe,fill=prescribe)) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon( aes(x=t_adj,ymin=m_fi-s_fi,ymax=m_fi+s_fi),alpha=0.3,color=NA) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable,scales="free_y") + 
+  scale_color_manual(values = viridis::viridis(4)) +
+  scale_fill_manual(values = viridis::viridis(4))+
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill= "",
+    title='',subtitle='Predicting T2M'
+    ) + 
+  theme_bw(base_size = 14)
+
+p3=gridExtra::grid.arrange(p1a,p2a,nrow=2)
+p3
+
+ggsave(
+     filename = "../output/gmd_paper/figures/e3sm_pscrb_fi.png",
+     plot = p3,
+     dpi = 300,
+     height = 6,
+     width = 10
+    )
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+## supplemental material?
+
+
+## no AOD
+```{r fig.width=8,fig.height=4}
+d3b1 <- rbind(e3sm_results %>% mutate(data="AOD"),e3sm_results_noAOD %>% mutate(data="No AOD") )
+d3b1$variable[d3b1$variable=="TREFHT"] <- "T2M"
+d3b1$model[d3b1$model=="TREFHT"] <- "T2M"
+
+p1=ggplot(data=d3b1 %>% filter(variable !="AEROD_v",model=="T050"),aes(x=t_adj,y=m_fi,ymin=m_fi-s_fi,ymax=m_fi+s_fi,color=data,group=interaction(model,data),fill=data)) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon(alpha=0.3,color=NA) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable,scales="free_y") + 
+  scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2:6)], "black")) + 
+  scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2:6)], "black")) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill= ""
+    ) + 
+  theme_bw(base_size=14)
+
+p2=ggplot(data=d3b1 %>% filter(variable !="AEROD_v",model=="T2M"),aes(x=t_adj,y=m_fi,ymin=m_fi-s_fi,ymax=m_fi+s_fi,color=data,group=interaction(model,data),fill=data)) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon(alpha=0.3,color=NA) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable,scales="free_y") + 
+  scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2:6)], "black")) + 
+  scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2:6)], "black")) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill= ""
+    ) + 
+  theme_bw(base_size=14)
+
+p3=gridExtra::grid.arrange(p1,p2,nrow=2)
+p3
+
+ggsave(
+     filename = "../output/gmd_paper/figures/e3sm_fi_no_AOD.png",
+     plot = p3,
+     dpi = 300,
+     height = 4,
+     width = 8
+    )
+
+```
+
+
+
+## WN
+```{r fig.width=10,fig.height=5}
+e3sm_results_WN$variable[e3sm_results_WN$variable=="TREFHT"] <- "T2M"
+e3sm_results_WN$model[e3sm_results_WN$model=="TREFHT"] <- "T2M"
+
+p1=ggplot(data=e3sm_results_WN %>% filter(model=="T050"),aes(x=t_adj,y=m_fi)) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon(aes(x=t_adj,ymin=m_fi-s_fi,ymax=m_fi+s_fi),alpha=0.3,color=NA) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable) + 
+
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "Data Source",
+    fill= "",
+    title='E3SM with White Noise',subtitle='Predicting T050'
+    ) + 
+  theme_bw(base_size = 12)
+
+
+p2=ggplot(data=e3sm_results_WN %>% filter(model=="T2M"),aes(x=t_adj,y=m_fi)) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon(aes(x=t_adj,ymin=m_fi-s_fi,ymax=m_fi+s_fi),alpha=0.3,color=NA) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "Data Source",
+    fill= "",
+        title='',subtitle='Predicting T2M'
+    ) + 
+  theme_bw(base_size = 12)
+
+p3=gridExtra::grid.arrange(p1,p2,nrow=2)
+p3
+
+ggsave(
+     filename = "../output/gmd_paper/figures/e3sm_wn_fi.png",
+     plot = p3,
+     dpi = 300,
+     height = 5,
+     width = 10
+    )
+```
+
+
+
+#### fi
+
+
+```{r fig.width=10,fig.height=5}
+e3sm_extra_vars$variable[e3sm_extra_vars$variable=="TREFHT"] <- "T2M"
+e3sm_extra_vars$model[e3sm_extra_vars$model=="TREFHT"] <- "T2M"
+
+p6=ggplot(data=e3sm_extra_vars %>% filter(model=="T050"),aes(
+    x = t_adj,
+    y = m_fi,
+    ymin = m_fi - s_fi,
+    ymax = m_fi + s_fi
+  )) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon(alpha=0.3,color=NA) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable) + 
+  scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2,3,5,6)])) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "Prescribed X Pinatubo",
+    fill= "",
+    title='E3SM',subtitle='Predicting T050'
+    ) + 
+  theme_bw(base_size=14)
+
+
+p7=ggplot(data=e3sm_extra_vars %>% filter(model=="T2M"),aes(
+    x = t_adj,
+    y = m_fi,
+    ymin = m_fi - s_fi,
+    ymax = m_fi + s_fi
+  )) +
+  geom_line(alpha = 0.95) +
+  geom_ribbon(alpha=0.3,color=NA) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable) + 
+  scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2,3,5,6)])) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "Prescribed X Pinatubo",
+    fill= "",
+            title='',subtitle='Predicting T2M'
+    ) + 
+  theme_bw(base_size=14)
+
+p8=gridExtra::grid.arrange(p6,p7,nrow=2)
+p8
+
+ggsave(
+     filename = "../output/gmd_paper/figures/e3sm_extra_fi.png",
+     plot = p8,
+     dpi = 300,
+     height = 5,
+     width = 10
+    )
+```
+
+
+# MERRA-2
+
+
+```{r}
+
+
+```
+
+```{r fig.width=10,fig.height=6}
+merra2_fi$variable[merra2_fi$variable=="TREFHT"] <- "T2M"
+merra2_fi$model[merra2_fi$model=="TREFHT"] <- "T2M"
+
+p1=merra2_fi %>% filter(model=="T050") %>%
+  ggplot() +
+  geom_line(aes(
+    x = t_adj,
+    y = m_fi,
+  )) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_vline(
+    xintercept = as_date("1982-03-29"),
+    color = "gray",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    title="MERRA-2",subtitle="Predicting T050"
+    ) + 
+  theme_bw(base_size=14)
+
+
+p2=merra2_fi %>% filter(model=="T2M") %>%
+  ggplot() +
+  geom_line(aes(
+    x = t_adj,
+    y = m_fi,
+  )) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_vline(
+    xintercept = as_date("1982-03-29"),
+    color = "gray",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    title="",subtitle="Predicting T2M"
+    ) + 
+  theme_bw(base_size=14)
+
+p3=gridExtra::grid.arrange(p1,p2,nrow=2)
+p3
+
+ggsave(
+     filename = "../output/gmd_paper/figures/merra2_fi.png",
+     plot = p3,
+     dpi = 300,
+     height = 6,
+     width = 10
+    )
+```
+
+## E3SM vs MERRA2
+
+```{r fig.width=10,fig.height=6}
+
+#e3sm_results_temp <- e3sm_results %>%
+#  mutate(variable=factor(variable,levels=c("AOD"   "FLNT"  "T050"  "FSDSC" "T2M" ),labels=c("AOD","FLNT","T050","FSDSC","T2M")))
+
+merra2_results_temp <- merra2_fi %>%
+  mutate(variable=factor(variable,levels=c("LWTUP","T050","TOTEXTTAU", "SWGDNCLR","T2M"),labels=c("FLNT","T050","AOD","FSDSC","T2M")),
+         model = factor(model,levels=c("T050","T2M"),labels=c("T050","TREFHT")))
+
+p1= ggplot() +
+    geom_line(data=e3sm_results %>% filter(model=="T050"), aes(x=t_adj,y=m_fi,color="E3SM")) +
+    geom_ribbon(data=e3sm_results %>% filter(model=="T050"), aes(x=t_adj,ymin=m_fi-s_fi,ymax=m_fi+s_fi,fill="Ensemble Variability"),alpha=0.3,color=NA) +
+    geom_line(data=merra2_results_temp %>% filter(model=="T050"),aes(
+    x = t_adj,
+    y = m_fi,
+    color="MERRA-2"
+  )) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_vline(
+    xintercept = as_date("1982-03-29"),
+    color = "gray",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill='',
+    title="E3SM vs MERRA-2",subtitle="Predicting T050"
+    ) + 
+    scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2,3)], "black")) + 
+  scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2,3)])) + 
+  theme_bw(base_size=14)
+
+
+p2= ggplot() +
+    geom_line(data=e3sm_results %>% filter(model=="TREFHT"), aes(x=t_adj,y=m_fi,color="E3SM")) +
+    geom_ribbon(data=e3sm_results %>% filter(model=="TREFHT"), aes(x=t_adj,ymin=m_fi-s_fi,ymax=m_fi+s_fi,fill="Ensemble Variability"),alpha=0.3,color=NA) +  
+    geom_line(data=merra2_results_temp %>% filter(model=="TREFHT"),aes(
+    x = t_adj,
+    y = m_fi,
+    color="MERRA-2"
+  )) +
+  geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_vline(
+    xintercept = as_date("1982-03-29"),
+    color = "gray",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_hline(
+    yintercept=0
+  ) +
+  facet_grid(model ~ variable) + 
+  labs(
+    x = "Time Zeroed",
+    y = "Feature importance",
+    color = "",
+    fill="",
+    title="",subtitle="Predicting T2M"
+    ) + 
+    scale_color_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2,3)], "black")) + 
+  scale_fill_manual(values = c(wesanderson::wes_palettes$Zissou1[c(2,3)])) + 
+  theme_bw(base_size=14)
+
+p3=gridExtra::grid.arrange(p1,p2,nrow=2)
+p3
+
+ggsave(
+     filename = "../output/gmd_paper/figures/merra2_v_e3sm_fi.png",
+     plot = p3,
+     dpi = 300,
+     height = 6,
+     width = 10
+    )
+```
+
+# comparing e3sm to merra
+```{r}
+comb = left_join(
+  e3sm_results %>% 
+    mutate(variable = factor(variable,levels=c("AOD","FLNT","T050","FSDSC", "T2M"),labels=c("AOD","LW Rad","T050","SW Rad","T2M"))) %>%
+    rename(m_fi_e3sm=m_fi),
+    merra2_fi %>% 
+    mutate(variable = factor(variable,levels=c("LWTUP","T050","TOTEXTTAU" ,"SWGDNCLR","T2M"),labels=c("LW Rad","T050","AOD","SW Rad","T2M"))) %>%
+    rename(m_fi_merra2=m_fi),
+  by=c("t_adj","variable","model")
+  )
+
+tab=comb %>% summarize(cor(m_fi_e3sm,m_fi_merra2),.by=c('variable','model'))
+#xtable::xtable(tab)
+tab
+```
+
+
+
+
+
+```{r fig.width=10,fig.height=9}
+
+p1=ggplot() +
+  
+  geom_line(data=e3sm_rmse_split %>% filter(model=="T050",year %in% c(1993,1995,1997)),aes(x=date,y=wrmse,group=rep,color="ESN"),alpha=0.25) +
+  geom_line(data=e3sm_rmse_split %>% filter(model=="T050",year %in% c(1993,1995,1997)) %>% summarize(m=mean(wrmse),.by=c(date,year)) %>% mutate(type=ifelse(year(date)>year,"Test","Train")),aes(x=date,y=m,linetype=type,color="ESN")) +
+  
+
+  geom_line(data=e3sm_replicate_rmse %>% mutate(year=year(date)) %>% filter(model=="T050") %>% summarize(rep_rmse=mean(test),.by=date),aes(x=date,y=rep_rmse,color="Replicate RMSE")) +
+  facet_grid(year~.) +
+      scale_color_manual(
+      values = c(wesanderson::wes_palettes$Zissou1[2:3], "black")
+    ) +
+    labs(
+      y = "Global Weighted RMSE",
+      x = "Date",
+      title="Predicting stratospheric temperature",
+      color = "",
+            linetype=""
+    ) +
+  #ylim(c(0,10)) +
+  theme_bw(base_size = 18)
+
+p2=ggplot() +
+  geom_line(data=e3sm_rmse_split %>% filter(model=="TREFHT",year %in% c(1993,1995,1997)),aes(x=date,y=wrmse,group=rep,color="ESN"),alpha=0.25) +
+  geom_line(data=e3sm_rmse_split %>% filter(model=="TREFHT",year %in% c(1993,1995,1997)) %>% summarize(m=mean(wrmse),.by=c(date,year)) %>% mutate(type=ifelse(year(date)>year,"Test","Train")),aes(x=date,y=m,linetype=type,color="ESN")) +
+  
+      geom_line(data=e3sm_replicate_rmse %>% mutate(year=year(date))  %>% filter(model=="TREFHT") %>% summarize(rep_rmse=mean(test),.by=date),aes(x=date,y=rep_rmse,color="Replicate RMSE")) +
+  facet_grid(year~.) +
+      scale_color_manual(
+      values = c(wesanderson::wes_palettes$Zissou1[2:3], "black")
+    ) +
+    labs(
+      y = "Global Weighted RMSE",
+      x = "Date",
+      title="Predicting surface temperature",
+      color = "",
+      linetype=""
+    ) +
+  #ylim(c(0,10)) +
+  theme_bw(base_size = 18)
+
+p3=grid.arrange(p1,p2,nrow=2)
+p3
+ggsave(
+     filename = "../output/gmd_paper/figures/e3sm_rmse.png",
+     plot = p3,
+     dpi = 300,
+     height = 9,
+     width = 10
+    )
+```
+
+
+
+
+# 6 spatial plots
+
+```{r}
+
+d6 <- rbind(e3sm_spatial %>% mutate(data="E3SM"), merra2_spatial %>% mutate(data="MERRA-2"))
+
+```
+
+
+## stratospheric temp
+
+```{r fig.width=14,fig.height=8}
+p1=e3sm_spatial  %>%
+  filter(model=="T050",date <= as_date("1995-12-31") & date > as_date("1991-04-30")) %>%
+  mutate(
+    m_fi=ifelse(m_fi > 3,3,m_fi),
+    m_fi=ifelse(m_fi < -1,-1,m_fi)
+         ) %>%
+  ggplot(aes(x=date,y=lat,fill=m_fi)) +
+  geom_tile(width=31) +
+  geom_vline(xintercept=180) +
+  facet_grid(~vars_adj) +
+  geom_hline(yintercept=0) +
+    geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  scale_fill_distiller(
+    palette = "RdBu",
+    direction = -1,
+    #limits = c(-1,3)
+  ) +
+  theme_bw(base_size = 18) +
+  #theme_bw(base_size = 24) +
+  labs(title="E3SM",subtitle="Predicting stratospheric temperature",y="Latitude",fill="Importance",x="Date")
+
+p2=merra2_spatial  %>%
+  filter(model=="T050",date >= as_date("1991-05-01") & date <= as_date("1995-12-31")) %>%
+  mutate(vars_adj=factor(vars_adj,levels=c("TOTEXTTAU","LWTUP","T050"))) %>%
+    mutate(
+    m_fi=ifelse(m_fi > 3,3,m_fi),
+    m_fi=ifelse(m_fi < -1,-1,m_fi)
+         ) %>%
+  ggplot(aes(x=date,y=lat,fill=m_fi)) +
+  geom_tile(width=31) +
+  geom_vline(xintercept=180) +
+  facet_grid(~vars_adj) +
+  geom_hline(yintercept=0) +
+    geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  scale_fill_distiller(
+    palette = "RdBu",
+    direction = -1,
+    #limits = c(-1,3)
+  ) +
+  theme_bw(base_size = 18) +
+  #theme_bw(base_size = 24) +
+  labs(title="MERRA-2",subtitle="Predicting stratospheric temperature",y="Latitude",fill="Importance",x="Date")
+
+p3=grid.arrange(p1,p2,nrow=2)
+p3
+
+ggsave(
+     filename = "../output/gmd_paper/figures/merra2_strat_contribution.png",
+     plot = p3,
+     dpi = 300,
+     height = 8,
+     width = 14
+    )
+```
+
+
+## surface temp
+```{r fig.width=14,fig.height=8}
+p1=e3sm_spatial  %>%
+  filter(model=="TREFHT",date <= as_date("1995-12-31")& date > as_date("1991-04-30")) %>%
+      mutate(
+    m_fi=ifelse(m_fi > .75,.75,m_fi),
+    m_fi=ifelse(m_fi < 0,0,m_fi),
+    vars_adj=factor(vars_adj,levels=c("AEROD_v","FSDSC","TREFHT"),labels=c("AEROD_v","FSDSC","T2M"))
+         ) %>%
+  ggplot(aes(x=date,y=lat,fill=m_fi)) +
+  geom_tile(width=31) +
+  geom_vline(xintercept=180) +
+  facet_grid(~vars_adj) +
+  geom_hline(yintercept=0) +
+    geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  scale_fill_distiller(
+    palette = "RdBu",
+    direction = -1,
+    #limits = c(0,.75)
+  ) +
+  theme_bw(base_size = 18) +
+  #theme_bw(base_size = 24) +
+  labs(title="E3SM",subtitle="Predicting surface temperature",y="Latitude",fill="Importance",x="Date")
+
+p2=merra2_spatial  %>%
+  filter(model=="TREFHT",date >= as_date("1991-04-01") & date <= as_date("1995-12-31")) %>%
+  mutate(vars_adj=factor(vars_adj,levels=c("TOTEXTTAU","SWGDNCLR","TREFHT"),labels=c("TOTEXTTAU","SWGDNCLR","T2M"))) %>%
+    mutate(
+    m_fi=ifelse(m_fi > .75,.75,m_fi),
+    m_fi=ifelse(m_fi < 0,0,m_fi)
+         ) %>%
+  ggplot(aes(x=date,y=lat,fill=m_fi)) +
+  geom_tile(width=31) +
+  geom_vline(xintercept=180) +
+  facet_grid(~vars_adj) +
+  geom_hline(yintercept=0) +
+    geom_vline(
+    xintercept = as_date("1991-06-15"),
+    color = "black",
+    linetype = "dashed",
+    size = 1
+  ) +
+  scale_fill_distiller(
+    palette = "RdBu",
+    direction = -1,
+    #limits = c(0,.75)
+  ) +
+  theme_bw(base_size = 18) +
+  #theme_bw(base_size = 24) +
+  labs(title="MERRA-2",subtitle="Predicting surface temperature",y="Latitude",fill="Importance",x="Date")
+
+p3=grid.arrange(p1,p2,nrow=2)
+p3
+
+ggsave(
+     filename = "../output/gmd_paper/figures/merra2_surf_contribution.png",
+     plot = p3,
+     dpi = 300,
+     height = 8,
+     width = 14
+    )
+```
+
