@@ -10,6 +10,16 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, dpi = 300)
 
 **Overview**: This script contains MERRA-2 results for the CoDA paper.
 
+Install correct version of `listenr`:
+
+```{r}
+# install.packages(
+#   "../listenr-v0.3.4.tar.gz",
+#   repos = NULL,
+#   type = "source"
+# )
+```
+
 Load packages:
 
 ```{r}
@@ -105,7 +115,7 @@ if (!file.exists(fp_p_merra_fi)) {
       linewidth = 0.75
     ) +
     geom_line(
-      mapping = aes(x = t_adj, y = fi, group = esn), 
+      mapping = aes(x = t_adj, y = fi, group = ensemble), 
       alpha = 0.5,
       color = "grey60"
     ) +
@@ -153,7 +163,7 @@ knitr::include_graphics(fp_p_merra_fi)
 
 ## Supplemental Material Plots
 
-Comparing number of blocks (averaged over ESNs):
+Comparing number of blocks (averaged over ensembles):
 
 ```{r}
 # Create file path
@@ -235,7 +245,7 @@ if (!file.exists(fp_p_merra_fi_blocks)) {
     ggplot(aes(
       x = t_adj,
       y = fi,
-      group = esn,
+      group = ensemble,
       color = as.factor(nblocks)
     )) +
     geom_vline(
@@ -287,7 +297,7 @@ if (!file.exists(fp_p_merra_fi_blocks)) {
 knitr::include_graphics(fp_p_merra_fi_blocks)
 ```
 
-Comparing hyperparameter values (averaged over ESNs):
+Comparing hyperparameter values (averaged over ensembles):
 
 ```{r}
 # Create file path
@@ -385,7 +395,7 @@ if (!file.exists(fp_p_fi_params_var)) {
       mapping = aes(
         x = t_adj,
         y = fi,
-        group = esn,
+        group = ensemble,
         color = params
       ),
       alpha = 0.5,
@@ -433,7 +443,7 @@ if (!file.exists(fp_p_merra_fi_rmses)) {
   fi_rmses <- 
     fi |>
     filter(nh == 1000, reg_par == 5) |>
-    select(esn, feat_imp, nblocks, variable, t_adj,
+    select(ensemble, feat_imp, nblocks, variable, t_adj,
            rmses_obs, rmses_adj) |>
     pivot_longer(cols = rmses_obs:rmses_adj,
                  names_to = "rmse_type",
@@ -456,7 +466,7 @@ if (!file.exists(fp_p_merra_fi_rmses)) {
       linetype = "dashed",
       linewidth = 0.75
     ) +
-    geom_line(aes(y = rmse, group = factor(esn):factor(rmse_type)), 
+    geom_line(aes(y = rmse, group = factor(ensemble):factor(rmse_type)), 
               alpha = 0.5, linewidth = 0.1) +
     geom_line(
       data = fi_rmses  |>

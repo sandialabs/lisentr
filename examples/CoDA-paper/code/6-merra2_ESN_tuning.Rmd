@@ -12,6 +12,16 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, dpi = 300)
 
 # Set Up
 
+Install correct version of `listenr`:
+
+```{r}
+# install.packages(
+#   "../listenr-v0.3.4.tar.gz",
+#   repos = NULL,
+#   type = "source"
+# )
+```
+
 Load packages:
 
 ```{r}

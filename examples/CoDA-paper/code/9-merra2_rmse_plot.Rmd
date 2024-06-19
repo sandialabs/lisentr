@@ -10,6 +10,16 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 **Overview**: This script implements some validation techniques for the MERRA-2 ESNs.
 
+Install correct version of `listenr`:
+
+```{r}
+# install.packages(
+#   "../listenr-v0.3.4.tar.gz",
+#   repos = NULL,
+#   type = "source"
+# )
+```
+
 Load packages:
 
 ```{r}
@@ -180,7 +190,7 @@ if (!file.exists(fp_preds) & !file.exists(fp_rmses)) {
         add_quad = TRUE,
         n_ensembles = 25,
         internal_scaling = "joint", 
-        cores = 7,
+        cores = 6,
         seed = 20230
       )
     

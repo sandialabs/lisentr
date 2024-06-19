@@ -10,6 +10,16 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 **Overview**: This code runs a simulation study for the synthetic data when varying `sigmaX`, `sigmaDelta`, and `sigmaEpsilon`.
 
+Install correct version of `listenr`:
+
+```{r}
+# install.packages(
+#   "../listenr-v0.3.4.tar.gz",
+#   repos = NULL,
+#   type = "source"
+# )
+```
+
 Load packages:
 
 ```{r}
@@ -68,7 +78,7 @@ Implement simulation study for comparing effects of varying the sigmas:
 ```{r}
 fp_sim_sigma =  "../output/simulation_res_sigma.csv"
 if (!file.exists(fp_sim_sigma)) {
-  cl <- makeCluster(7)
+  cl <- makeCluster(8)
   registerDoParallel(cl)
   start <- Sys.time()
   iterStart <- Sys.time()
@@ -224,10 +234,9 @@ if (!file.exists(fp_sim_sigma)) {
           )
         
         # Compute PFI without retraining on spatial scale
-        pfi <-
-          compute_fi(
+        pfi_wo_retrain_spatial <-
+          compute_pfi(
             model = esn,
-            type = "pfi",
             nreps = nreps,
             var_groups = list(1:n_eofs, (n_eofs + 1):(2 * n_eofs)),
             y_spatial = ta6_train_mats$val,
@@ -238,25 +247,37 @@ if (!file.exists(fp_sim_sigma)) {
         
         # Clean up PFI results and join
         pfi_res <-
-          pfi |>
+          bind_rows(
+            pfi_wo_retrain_spatial$pfi |>
+              mutate(retraining = "no retraining", spatial = "spatial scale") |>
+              rename(pfi = pfi_mean),
+          ) |>
+          tibble::remove_rownames() |>
+          rename(importance = pfi,
+                 vars_adj = vars_perm,
+                 t_adj = t_perm) |>
           mutate(
             feat_imp = "PFI",
             variable = ifelse(vars_adj == paste(1:n_eofs, collapse = ","), "x1", "x2"),
             t_forecasted = as.numeric(t_forecasted),
             t_adj = as.numeric(t_adj)
           ) |>
+          mutate(time_diff = t_forecasted - t_adj) |>
+          filter(time_diff == 1) |>
           select(
             feat_imp,
+            retraining,
+            spatial,
             variable,
             vars_adj:t_forecasted,
+            time_diff,
             everything()
           )
         
         # Compute ZFI without retraining on spatial scale
-        zfi <-
-          compute_fi(
+        zfi_wo_retrain_spatial <-
+          compute_zfi(
             model = esn,
-            type = "zfi",
             var_groups = list(1:n_eofs, (n_eofs + 1):(2 * n_eofs)),
             y_spatial = ta6_train_mats$val,
             phi = ta6_eofs$val$phi,
@@ -266,23 +287,34 @@ if (!file.exists(fp_sim_sigma)) {
         
         # Clean up ZFI results and join
         zfi_res <-
-          zfi |>
+          bind_rows(
+            zfi_wo_retrain_spatial$zfi |>
+              mutate(retraining = "no retraining", spatial = "spatial scale")
+          ) |>
+          rename(importance = zfi,
+                 vars_adj = vars_zeroed,
+                 t_adj = t_zeroed) |>
           mutate(
             feat_imp = "ZFI",
             variable = ifelse(vars_adj == paste(1:n_eofs, collapse = ","), "x1", "x2"),
             t_forecasted = as.numeric(t_forecasted),
             t_adj = as.numeric(t_adj)
           ) |>
+          mutate(time_diff = t_forecasted - t_adj) |>
+          filter(time_diff == 1) |>
           select(
             feat_imp,
+            retraining,
+            spatial,
             variable,
             vars_adj:t_forecasted,
+            time_diff,
             everything()
           )
         
         # Feature Importance Results
         fi_res_list[[j]] <-
-          bind_rows(pfi_res, zfi_res)
+          bind_rows(pfi_res, zfi_res)#pfi_res#zfi_res#
         fi_res_list[[j]]$sim <- j
         
       }

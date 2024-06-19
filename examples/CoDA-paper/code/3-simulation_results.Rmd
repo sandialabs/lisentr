@@ -10,6 +10,16 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 **Overview**: This code looks into simulation study results and creates visualizations for paper.
 
+Install correct version of `listenr`:
+
+```{r}
+# install.packages(
+#   "../listenr-v0.3.4.tar.gz",
+#   repos = NULL,
+#   type = "source"
+# )
+```
+
 Load packages:
 
 ```{r}
@@ -214,6 +224,8 @@ agg_res_sigma <-
   res_sigma |>
   group_by(
     feat_imp,
+    retraining,
+    spatial,
     variable,
     vars_adj,
     t_adj,
@@ -228,8 +240,8 @@ agg_res_sigma <-
     rhoDelta,
     nblocks
   ) |>
-  summarize(m_importance = mean(fi),
-            s_importance = sd(fi)) |>
+  summarize(m_importance = mean(importance),
+            s_importance = sd(importance)) |>
   mutate(
     phiX = paste0("phiX=", phiX),
     phiDelta = paste0("phiDelta=", phiDelta),
@@ -243,6 +255,8 @@ agg_res_sigma <-
 agg_res_phi_rho <- res_phi_rho |>
   group_by(
     feat_imp,
+    retraining,
+    spatial,
     variable,
     vars_adj,
     t_adj,
@@ -257,8 +271,8 @@ agg_res_phi_rho <- res_phi_rho |>
     rhoDelta,
     nblocks
   ) |>
-  summarize(m_importance = mean(fi),
-            s_importance = sd(fi)) |>
+  summarize(m_importance = mean(importance),
+            s_importance = sd(importance)) |>
   mutate(
     phiX = paste0("phiX=", phiX),
     phiDelta = paste0("phiDelta=", phiDelta),

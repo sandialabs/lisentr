@@ -12,6 +12,16 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 # Set Up
 
+Install correct version of `listenr`:
+
+```{r}
+# install.packages(
+#   "../listenr-v0.3.4.tar.gz",
+#   repos = NULL,
+#   type = "source"
+# )
+```
+
 Load packages:
 
 ```{r}
@@ -89,7 +99,7 @@ weights = merra2 |> distinct(lon, lat, loc_weight) |> pull(loc_weight)
 Specify number of cores, number of reps (for FI), and block sizes:
 
 ```{r}
-ncores = 7
+ncores = 3
 nreps = 10
 blks = 1:6
 ```
@@ -97,13 +107,12 @@ blks = 1:6
 Function for computing different feature importance scenarios: 
 
 ```{r}
-compute_merra2_fi <- function(eesn, nblocks, fp) {
+compute_merra2_fi <- function(eesn, nblocks, cores, fp) {
     
     # Compute (weighted) ZFI on spatial scale
-    zfi <- 
-      purrr::map_df(
-        .x = eesn,
-        .f = compute_fi,
+    zfi_spatial_wgt <-
+      compute_ens_fi_fast(
+        modelList = eesn,
         type = "zfi",
         var_groups = list(1:n_eofs, (n_eofs + 1):(2 * n_eofs)),
         blockSize = nblocks,
@@ -111,15 +120,15 @@ compute_merra2_fi <- function(eesn, nblocks, fp) {
         phi = phi_train,
         weights = weights,
         seed = 202304,
-        .id = "esn"
-      )
+        cores = cores,
+      ) |>
+      map_df(.f = data.frame, .id = "ensemble")
     print("ZFI weighted")
     
     # Compute (weighted) PFI on spatial scale
-    pfi <-
-      purrr::map_df(
-        .x = eesn,
-        .f = compute_fi,
+    pfi_spatial_wgt <-
+      compute_ens_fi_fast(
+        modelList = eesn,
         type = "pfi",
         var_groups = list(1:n_eofs, (n_eofs + 1):(2 * n_eofs)),
         blockSize = nblocks,
@@ -128,21 +137,22 @@ compute_merra2_fi <- function(eesn, nblocks, fp) {
         phi = phi_train,
         weights = weights,
         seed = 202304,
-        .id = "esn"
+        cores = cores
       ) |>
+      map_df(.f = data.frame, .id = "ensemble") |>
       summarise(
         rmses_obs = mean(rmses_obs),
         rmses_adj = mean(rmses_adj),
-        fi = mean(fi),
-        .by = c(esn, t_adj, t_forecasted, vars_adj)
+        fi = mean(fi), 
+        .by = c(ensemble, t_adj, t_forecasted, vars_adj)
       )
     print("PFI weighted")
 
     # Join FI results and clean up
     fi <-
       bind_rows(
-        zfi |> mutate(feat_imp = "ZFI"),
-        pfi |> mutate(feat_imp = "PFI")
+        zfi_spatial_wgt |> mutate(feat_imp = "ZFI"),
+        pfi_spatial_wgt |> mutate(feat_imp = "PFI")
       ) |>
       mutate(
         variable = ifelse(
@@ -155,7 +165,7 @@ compute_merra2_fi <- function(eesn, nblocks, fp) {
       ) |>
       mutate(nblocks = nblocks) |>
       select(
-        esn,
+        ensemble,
         feat_imp,
         nblocks,
         variable,
@@ -201,6 +211,7 @@ if (!file.exists("../output/merra2_FI_eesn1_blk6.csv")) {
     compute_merra2_fi(
       eesn = eesn1,
       nblocks = nblks,
+      cores = ncores,
       fp = paste0("../output/merra2_FI_eesn1_blk", nblks, ".csv")
     )
   }
@@ -234,6 +245,7 @@ if (!file.exists("../output/merra2_FI_eesn2_blk6.csv")) {
     compute_merra2_fi(
       eesn = eesn2,
       nblocks = nblks,
+      cores = ncores,
       fp = paste0("../output/merra2_FI_eesn2_blk", nblks, ".csv")
     )
   }
@@ -267,6 +279,7 @@ if (!file.exists("../output/merra2_FI_eesn3_blk6.csv")) {
     compute_merra2_fi(
       eesn = eesn3,
       nblocks = nblks,
+      cores = ncores,
       fp = paste0("../output/merra2_FI_eesn3_blk", nblks, ".csv")
     )
   }
